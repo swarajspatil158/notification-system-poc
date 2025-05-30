@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Insyd Notification POC</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .user-selector { margin-bottom: 20px; padding: 10px; background: #f5f5f5; }
+        .post { border: 1px solid #ddd; margin: 10px 0; padding: 15px; border-radius: 5px; }
+        .like-btn { background: #1976d2; color: white; border: none; padding: 8px 16px; cursor: pointer; border-radius: 3px; }
+        .like-btn:hover { background: #1565c0; }
+        .notifications { border: 1px solid #ddd; padding: 15px; margin-top: 20px; border-radius: 5px; }
+        .notification { padding: 8px; margin: 5px 0; background: #e3f2fd; border-radius: 3px; cursor: pointer; }
+        .notification.read { background: #f5f5f5; color: #666; }
+        .notification.unread { background: #e8f5e8; font-weight: bold; }
+        .status { position: fixed; top: 10px; right: 10px; padding: 10px; background: #4caf50; color: white; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Insyd Notification System POC</h1>
+    
+    <div class="user-selector">
+        <label>Current User: </label>
+        <select id="userSelect">
+            <option value="1">John (User 1)</option>
+            <option value="2">Jane (User 2)</option>
+        </select>
+        <span id="connectionStatus" class="status">Connecting...</span>
+    </div>
+
+    <div id="posts"></div>
+
+    <div class="notifications">
+        <h3>Notifications</h3>
+        <div id="notificationList">No notifications yet</div>
+    </div>
+
+    <script>
+        let currentUserId = 1;
+        let ws = null;
+
+        // Connect WebSocket
+        function connectWebSocket() {
+            const wsUrl = `ws://${window.location.hostname}:8080`;
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ type: 'auth', userId: currentUserId }));
+                document.getElementById('connectionStatus').textContent = 'Connected';
+                document.getElementById('connectionStatus').style.background = '#4caf50';
+            };
+            
+            ws.onclose = () => {
+                document.getElementById('connectionStatus').textContent = 'Disconnected';
+                document.getElementById('connectionStatus').style.background = '#f44336';
+                // Reconnect after 3 seconds
+                setTimeout(connectWebSocket, 3000);
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'notification') {
+                    showNotification(data);
+                    loadNotifications();
+                }
+            };
+        }
+
+        // Show real-time notification
+        function showNotification(data) {
+            const notification = document.createElement('div');
+            notification.style.cssText = 'position: fixed; top: 50px; right: 10px; background: #2196f3; color: white; padding: 15px; border-radius: 5px; z-index: 1000;';
+            notification.textContent = `New: ${data.message}`;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+
+        // Load posts
+        function loadPosts() {
+            fetch('/api/posts')
+                .then(r => r.json())
+                .then(posts => {
+                    const container = document.getElementById('posts');
+                    container.innerHTML = posts.map(post => `
+                        <div class="post">
+                            <strong>${post.username}:</strong> ${post.content}
+                            <br><br>
+                            <button class="like-btn" onclick="likePost(${post.id})">
+                                Like (${post.like_count})
+                            </button>
+                        </div>
+                    `).join('');
+                });
+        }
+
+        // Like a post
+        function likePost(postId) {
+            fetch(`/api/posts/${postId}/like`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: currentUserId })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    loadPosts(); // Refresh to show updated like count
+                }
+            });
+        }
+
+        // Load notifications
+        function loadNotifications() {
+            fetch(`/api/notifications/${currentUserId}`)
+                .then(r => r.json())
+                .then(notifications => {
+                    const container = document.getElementById('notificationList');
+                    if (notifications.length === 0) {
+                        container.innerHTML = 'No notifications yet';
+                        return;
+                    }
+                    
+                    container.innerHTML = notifications.map(notif => `
+                        <div class="notification ${notif.is_read ? 'read' : 'unread'}" 
+                             onclick="markAsRead(${notif.id})">
+                            ${notif.message}
+                            <br><small>${new Date(notif.created_at).toLocaleString()}</small>
+                        </div>
+                    `).join('');
+                });
+        }
+
+        // Mark notification as read
+        function markAsRead(notificationId) {
+            fetch(`/api/notifications/${notificationId}/read`, {
+                method: 'PUT'
+            })
+            .then(() => {
+                loadNotifications();
+            });
+        }
+
+        // Change user
+        document.getElementById('userSelect').addEventListener('change', (e) => {
+            currentUserId = parseInt(e.target.value);
+            if (ws) {
+                ws.send(JSON.stringify({ type: 'auth', userId: currentUserId }));
+            }
+            loadNotifications();
+        });
+
+        // Initialize
+        connectWebSocket();
+        loadPosts();
+        loadNotifications();
+
+        // Refresh notifications every 10 seconds
+        setInterval(loadNotifications, 10000);
+    </script>
+</body>
+</html>
