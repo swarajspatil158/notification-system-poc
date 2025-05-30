@@ -2,9 +2,13 @@ const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const WebSocket = require('ws');
 const path = require('path');
+const http = require('http');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Create HTTP server
+const server = http.createServer(app);
 
 // Middleware
 app.use(express.json());
@@ -48,8 +52,8 @@ db.serialize(() => {
   db.run(`INSERT OR IGNORE INTO posts (id, content, user_id) VALUES (2, 'Great day today', 2)`);
 });
 
-// WebSocket server
-const wss = new WebSocket.Server({ port: 8080 });
+// WebSocket server on same port as HTTP server
+const wss = new WebSocket.Server({ server });
 const clients = new Map(); // userId -> websocket
 
 wss.on('connection', (ws, req) => {
@@ -207,7 +211,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`WebSocket server running on port 8080`);
+  console.log(`WebSocket server running on same port`);
 });
